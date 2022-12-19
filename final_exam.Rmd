@@ -1,0 +1,218 @@
+---
+title: "Final Exam"
+author: "Daniel Shapiro"
+date: "12/19/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+set.seed(6800)
+library(tidyverse)
+library(stats)
+library(estimatr)
+library(stargazer)
+library(foreign)
+library(ggfortify)
+```
+
+### Question 1 Background:
+
+*The case \textit{Chavez v. Illinois State Police} (1999) was a class-action lawsuit against the Illinois State Police for unconstitutional racial profiling. Among other evidence, the plaintiffs claimed that the percentage of drivers stopped who were Black was not representative of the proportion of the Illinois population that is Black.*
+
+*The 1990 census found that the racial breakdown of Illinois is roughly 75\% White and 15\% Black (you can treat these statistics as fixed). The racial breakdown of stopped drivers was 68\% White and 25\% Black. The standard deviations for the estimated share of stopped drivers was 0.22 (White) and 0.17 (Black), in a sample of 50,000 stopped drivers.*
+
+### 1a) Imagine you are planning to statistically evaluate the plaintiffs' claims that Black drivers were much more likely to get pulled over relative to their population. Clearly specify a null and alternative hypothesis (5 points)
+
+Null hypothesis ($\mu_{0}$: Black drivers are not more likely to get pulled over relative to their population.
+
+Alternative hypothesis ($\mu_{a}$): Black drivers are more likely to get pulled over relative to their population.
+
+### 1b) Calculate a test statistic that allows you to assess the amount of evidence against the claim that the stopped drivers represent a random sample from the Illinois population. Provide an approximate p-value. Explain, in words, what the test statistic and p-value mean in terms of substantive and statistical significance. (10 points)
+
+The t statistic to test hypothesis $\mu_{a}$ against null hypothesis $\mu_{0}$ can be calculated as: $\frac{\mu_{a} - \mu_{0}}{\hat{SE(\mu_{a})}}$
+
+Here, we see that this is $\frac{.25 - .15}{.17/\sqrt(50000)}$ = $\frac{.1}{.0008}$ = $131.533$.
+
+The t statistic, at first glance, looks abnormally large; after all, we are supposed to find out whether or not the t statistic fits between -1.96 and 1.96, and this number is nowhere close. But given the data, it makes sense: we have a massive sample size, so the level of precision of this sample will be quite high. The percentage of Black people stopped is **way** higher than would be expected if this sample were random, making it seem that there is almost no chance that this is a random sample. A high t statistic indicates large differences between the sample data and the null hypothesis, so this number is logical.
+
+The p-value backs this assessment up. Using the pt() function, we see that the p-value is essentially 0. This number is most certainly below the significance level of $\alpha = 0.05$, so we can reject the null hypothesis at the 5% level of significance and say that the sample of stopped drivers does not represent a random sample from the Illinois population.
+
+```{r}
+t <- -abs(131.533)
+pt(q = t, df = 49999)
+
+# I only did one side (instead of multiplying it by 2) because we are only looking to 
+# see whether or not Black drivers are more likely to get pulled over.
+```
+
+### 1c) Calculate a confidence interval for your estimate of the difference. Interpret, in words, what this confidence interval means. Does this align with your findings in part b? (5 points)
+
+The equation to find the confidence interval is: $\hat\mu \pm 1.96\hat{SE}$. Below, we can set this up.
+
+```{r}
+muhat <- .25
+se <- .17/sqrt(50000)
+
+c((muhat - 1.96 * se), (muhat + 1.96 * se))
+```
+
+This confidence interval shows us that based on the sample, we can expect that the real "percent Black" of drivers stopped in Illinois is between 24.85% and 25.15%, with 95% certainty. This does fit with our results for part b, as the two bounds are *nowhere close* to 15%, which would be the expected "percent Black" if Black people were indeed not more likely to get pulled over relative to their population, as stipulated by the null hypothesis.
+
+### Question 2 Background:
+
+*Imagine that the true population model between our variables of interest ($Y$ and $X_1$) is causal only when controlling for $X_2$:*
+
+$$
+Y=-4+1.4 X_1 - .7 X_2 +\epsilon
+$$
+
+Where:
+\begin{align*}
+X_1 & = N(5, 2)\\
+X_2 & = .5 X_1^2- U(0, 4)\\
+\epsilon & = N(0, 2)\\
+\end{align*}
+
+*Unfortunately, a researcher has modeled the relationship between $Y$ and $X_1$ using the following model:*
+
+$$
+Y=\beta_0+\beta_1 X_1+\epsilon
+$$
+
+### 2) Draw a random sample from the population distribution of $Y$, $X_1$, and $X_2$ ($n=1000$). How much does the researcher's model (once you estimate $\hat\beta_1$ and $\hat\beta_0$) depart from the true population model? Why? Can this be fixed?
+
+First, I set up all of the parameters.
+
+```{r}
+dataframe <- data.frame(matrix(ncol = 2, nrow = 1000)) %>%
+  mutate(X1 = rnorm(1000, mean = 5, sd = 2)) %>%
+  mutate(X2 = runif(1000, min = 0, max = 4)) %>%
+  mutate(epsilon = rnorm(1000, mean = 0, sd = 2))
+
+for(i in 1:1000){
+  dataframe$X2[i] <- .5 * (dataframe$X1[i]^2) - dataframe$X2[i]
+  dataframe$Y[i] <- -4 + 1.4*dataframe$X1[i] - .7*dataframe$X2[i] + dataframe$epsilon[i]
+}
+```
+
+Now, I run a regression using the model that the researcher used to see the discrepancy in coefficients.
+
+```{r}
+model2 <- lm(Y ~ X1, data = dataframe)
+summary(model2)
+```
+
+As we can see, the model that the researcher used is way wrong and deviates quite a lot. The formula for the true model is  $Y = -4 + 1.4 X_1 - .7 X_2 + \epsilon$, whereas this one ends up as about $Y = 4.85 - 2.13 X_1 + \epsilon$, where $\beta_0 = 4.85$ and $\beta_1 = -2.13$. The effect of $X_1$ on $Y$ is not only different than in the real model -- it has the wrong sign as well. The researcher's model shows a negative effect, but the real relationship is positive when the $X_2$ control gets put in.
+
+Can this be "fixed?" Well, it depends on what you mean by fixed. I don't really see how it can be fixed given the model that the researcher uses, because it's just wrong -- the effect is completely misrepresented. If we add in the $X_2$ variable to the regression, though, we can see the correct effect:
+
+```{r}
+editedmodel2 <- lm(Y ~ X1 + X2, data = dataframe)
+summary(editedmodel2)
+```
+
+Using (Y ~ X1 + X2) makes our coefficients look much better. $\beta_0$ of -3.95, $\beta_1$ of 1.37 and $\beta_2$ of -0.69 look very similar to the values given in the equation -- -4, 1.4 and -0.7. There is some small differentiation present due to variation in sampling, but the general trends look correct.
+
+### Question 3 Background:
+
+*To gauge the effect of intrinsic versus extrinsic motives for voting, Gerber, Green, and Larimer conducted a field experiment in Michigan prior to the August 2006 primary election. Voters were randomly assigned to either the control group (no mailer) or one of four treatment groups. Treatment and randomization was at the household level.*
+
+\begin{enumerate}
+\item All four treatments carry the message \textquotedblleft DO YOUR CIVIC DUTY - VOTE!\textquotedblright\ The first type of mailing (\emph{Civic Duty}) provides a baseline for comparison with the other treatments.
+
+\item Households receiving the \emph{Hawthorne } mailing were told \textquotedblleft YOU ARE BEING STUDIED!\textquotedblright\ and informed that researchers would examine their voting behavior by means of public records.
+
+\item The \emph{Self} mailing exerts more social pressure by informing recipients that who votes is public information and listing the recent voting record of each registered voter in the household.
+
+\item The fourth mailing, \emph{Neighbors}, lists not only the household's voting records but also the voting records of those living nearby. By threatening to \textquotedblleft publicize who does and does not vote,\textquotedblright\ this treatment is designed to apply maximal social pressure.
+\end{enumerate}
+
+I have provided you with the original data of Gerber et al. The data is available on the course website (\texttt{gerber.dta}). Below is a list of the important variable definitions in your dataset.
+
+\begin{itemize}
+\item \textit{treatment}: which treatment condition respondents were assigned to. Note the leading spaces on the factor levels.
+
+\item \textit{voted} = `Yes' if Respondent voted in the 2006 Primary Election (`No' otherwise)
+
+\item \textit{yob} - year of birth
+
+\item \textit{sex} - `male' or `female' 
+
+\item \textit{hh\_id} - a unique household identifier
+
+\item \textit{g2002} = `yes' if Respondent voted in the 2002 General Election (`no' otherwise)
+
+\end{itemize}
+
+### 3a) Use OLS to estimate the average effects of the four treatments on \textit{voting}, not adjusting for any of the other variables. Report the results in a nicely-formatted table. Do you have a lot of confidence in these estimates? Why or why not? Discuss the plausibility of each of the regression assumptions. (15 points)
+
+```{r}
+gerber <- read.dta("gerber.dta")
+```
+
+First, this is going to require some serious data reworking, because the categories that we are looking at are not exactly formatted well for data analysis. First, I'm going to a) take out the columns that we don't work with, and b) change some columns around so that they can better work for regression.
+
+```{r}
+# Taking out extraneous variables just for ease of looking.
+
+gerber <- gerber %>%
+  select(c(sex, yob, g2002, treatment, voted, hh_id))
+
+# Now, changing some columns. I should be able to use recode().
+
+gerber$voted <- recode(gerber$voted, No = 0, Yes = 1)
+```
+
+Now, let's see what happens when we run a regression.
+
+```{r}
+model3 <- lm(voted ~ treatment, data = gerber)
+stargazer(model3, type = "text")
+```
+
+Essentially, what this table shows is that being part of the control group implies about a 29.7% chance that the person voted in the August 2006 primary election. With the "Civic Duty" baseline treatment, that percentage jumps to about 31.5% chance of voting (29.7 + 1.8). With the "Hawthorne" treatment, it rises to about 32.3%, with the "Self" treatment, 34.6%, and with the final "Neighbors" treatment, 37.8%. 
+
+Do I feel confident about these results? Setting aside the question of whether or not using OLS is appropriate for a regression with a binary dependent variable, let's dive into the assumptions.
+
+1) Linearity in Parameters:
+
+A good test for linearity in parameters is the residuals vs. fitted values test. Below, we can run this:
+
+```{r}
+autoplot(model3, 1)
+```
+
+This looks fairly linear; sure, the line is a bit lower than 0, but it is straight at least, and it isn't far from 0. This is a weird example, honestly, because while we do have a linear model here, the variables look a bit different than what we usually see. Usually, we see that at least one side or the other is continuous; here, both are factors. So we can't say "a one-point increase in X leads to a __ increase in Y;" interpretation is a bit more difficult. The equation is technically linear and the the residuals vs. fitted values test shows linearity, but we must be very careful with interpretation.
+
+2) Random Sampling
+
+This sample seems random. The research design is specifically supposed to be random, and the fact that there are 344,084 data points speaks to this factor. I don't see any evidence that the sample is not random.
+
+3) Variation in X
+
+There is definitely variation in X, there are different values of x.
+
+4) Zero conditional mean
+
+In order to say that we have "zero conditional mean" it means that we have to have exogeneity. Here, I think that we can definitely say that there is exogeneity; there is no way that voting in the August 2006 primaries influenced receiving the treatment which literally happened before the vote. This parameter is satisfied.
+
+5) Homoskedasticity
+
+This should be a problem and should show us why we don't use OLS for binary dependent variables.
+
+```{r}
+autoplot(model3, 3)
+```
+
+Indeed, we see that this regression does **not** seem homoskedastic -- the line should be horizontal.
+
+6) Normality
+
+The errors are nowhere close to normally distributed. We can check by looking at these two plots.
+
+```{r}
+autoplot(model3, c(2, 5))
+```
+
+### 3b) Repeat part a) with robust standard errors (avoid using lm_robust(), since this will likely crash your R session). How do your findings change? Why? Which standard errors do you prefer? (6 points)
