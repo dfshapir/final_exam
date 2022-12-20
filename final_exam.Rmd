@@ -14,6 +14,8 @@ library(estimatr)
 library(stargazer)
 library(foreign)
 library(ggfortify)
+library(lmtest)
+library(sandwich)
 ```
 
 ### Question 1 Background:
@@ -34,7 +36,7 @@ The t statistic to test hypothesis $\mu_{a}$ against null hypothesis $\mu_{0}$ c
 
 Here, we see that this is $\frac{.25 - .15}{.17/\sqrt(50000)}$ = $\frac{.1}{.0008}$ = $131.533$.
 
-The t statistic, at first glance, looks abnormally large; after all, we are supposed to find out whether or not the t statistic fits between -1.96 and 1.96, and this number is nowhere close. But given the data, it makes sense: we have a massive sample size, so the level of precision of this sample will be quite high. The percentage of Black people stopped is **way** higher than would be expected if this sample were random, making it seem that there is almost no chance that this is a random sample. A high t statistic indicates large differences between the sample data and the null hypothesis, so this number is logical.
+The t statistic, at first glance, looks abnormally large; after all, we are supposed to find out whether or not the t statistic fits between -1.96 and 1.96, and this number is nowhere close. But given the data, it makes sense: we have a massive sample size, so the level of precision of this sample will be quite high. The percentage of Black people stopped is **way** higher than would be expected if this sample were random, making it seem that there is almost no chance that this is a random sample of the Illinois population as a whole. A high t statistic indicates large differences between the sample data and the null hypothesis, so this number is logical.
 
 The p-value backs this assessment up. Using the pt() function, we see that the p-value is essentially 0. This number is most certainly below the significance level of $\alpha = 0.05$, so we can reject the null hypothesis at the 5% level of significance and say that the sample of stopped drivers does not represent a random sample from the Illinois population.
 
@@ -43,7 +45,7 @@ t <- -abs(131.533)
 pt(q = t, df = 49999)
 
 # I only did one side (instead of multiplying it by 2) because we are only looking to 
-# see whether or not Black drivers are more likely to get pulled over.
+# see whether or not Black drivers are more likely to get pulled over, not less.
 ```
 
 ### 1c) Calculate a confidence interval for your estimate of the difference. Interpret, in words, what this confidence interval means. Does this align with your findings in part b? (5 points)
@@ -57,7 +59,7 @@ se <- .17/sqrt(50000)
 c((muhat - 1.96 * se), (muhat + 1.96 * se))
 ```
 
-This confidence interval shows us that based on the sample, we can expect that the real "percent Black" of drivers stopped in Illinois is between 24.85% and 25.15%, with 95% certainty. This does fit with our results for part b, as the two bounds are *nowhere close* to 15%, which would be the expected "percent Black" if Black people were indeed not more likely to get pulled over relative to their population, as stipulated by the null hypothesis.
+This confidence interval shows us that based on the sample, we can expect that the real "percent Black" of drivers stopped in Illinois is between 24.85% and 25.15%, with 95% certainty. This does fit with our results for part b, as the two bounds are *nowhere close* to 15%, which would be the expected "percent Black" of the sample if Black people were indeed not more likely to get pulled over relative to their population, as stipulated by the null hypothesis.
 
 ### Question 2 Background:
 
@@ -87,6 +89,9 @@ First, I set up all of the parameters.
 ```{r}
 dataframe <- data.frame(matrix(ncol = 2, nrow = 1000)) %>%
   mutate(X1 = rnorm(1000, mean = 5, sd = 2)) %>%
+  
+# First I make this for X2, then I do a for loop later to address the rest. Seemed easier.
+  
   mutate(X2 = runif(1000, min = 0, max = 4)) %>%
   mutate(epsilon = rnorm(1000, mean = 0, sd = 2))
 
@@ -173,7 +178,9 @@ stargazer(model3, type = "text")
 
 Essentially, what this table shows is that being part of the control group implies about a 29.7% chance that the person voted in the August 2006 primary election. With the "Civic Duty" baseline treatment, that percentage jumps to about 31.5% chance of voting (29.7 + 1.8). With the "Hawthorne" treatment, it rises to about 32.3%, with the "Self" treatment, 34.6%, and with the final "Neighbors" treatment, 37.8%. 
 
-Do I feel confident about these results? Setting aside the question of whether or not using OLS is appropriate for a regression with a binary dependent variable, let's dive into the assumptions.
+Do I feel confident about these results? Setting aside the question of whether or not using OLS is appropriate for a regression with a binary dependent variable, there's the problem of **cluster dependence** here. We can already tell that regression assumptions will be violated, as sampling and treatment is applied at the household level, but the regression assumes that people are sampled at the *individual* level. We also learned in class that this issue leads to errors and outcomes of individuals being correlated, so by assuming independence, we "overstate the amount of information." We will also have some problems with homoskedasticity.
+
+Taking these issues in mind, let's dive into the assumptions. We will see that linear regression is likely **not** appropriate here, as multiple assumptions fail.
 
 1) Linearity in Parameters:
 
@@ -187,15 +194,15 @@ This looks fairly linear; sure, the line is a bit lower than 0, but it is straig
 
 2) Random Sampling
 
-This sample seems random. The research design is specifically supposed to be random, and the fact that there are 344,084 data points speaks to this factor. I don't see any evidence that the sample is not random.
+This sample seems random, at least among households. The research design is specifically supposed to be random, and the fact that there are 344,084 data points speaks to this factor. I don't see any evidence that the sample is not random, at least at the household level.
 
 3) Variation in X
 
-There is definitely variation in X, there are different values of x.
+There is definitely variation in X; there are different values of x.
 
 4) Zero conditional mean
 
-In order to say that we have "zero conditional mean" it means that we have to have exogeneity. Here, I think that we can definitely say that there is exogeneity; there is no way that voting in the August 2006 primaries influenced receiving the treatment which literally happened before the vote. This parameter is satisfied.
+In order to say that we have "zero conditional mean" it means that we have to have exogeneity. Here, I think that we can probably say that there is exogeneity; there is no way that voting in the August 2006 primaries influenced receiving the treatment which literally happened before the vote. This parameter is satisfied as well as it can be.
 
 5) Homoskedasticity
 
@@ -216,3 +223,131 @@ autoplot(model3, c(2, 5))
 ```
 
 ### 3b) Repeat part a) with robust standard errors (avoid using lm_robust(), since this will likely crash your R session). How do your findings change? Why? Which standard errors do you prefer? (6 points)
+
+```{r}
+robusthc2 <- coeftest(model3, vcov = vcovHC(model3, type = "HC2"))
+robusthc3 <- coeftest(model3, vcov = vcovHC(model3, type = "HC3"))
+
+robusthc2
+robusthc3
+```
+
+Frankly, the results barely change at all. I tried both HC2 and HC3 errors, but very little was different. The Std. Error and t value columns are a bit different, but not by much at all. I do prefer using robust standard errors here, because it's generally good practice, but it doesn't actually make that much of a difference. Our n is so big that it doesn't really do all that much.
+
+### 3c) Now repeat part a) with robust standard errors clustered at the household level. How do your findings change? Why? Which standard errors do you prefer? (6 points)
+
+Not being able to use lm_robust() does make this harder, but I think that I can do it this way as well. I used HC2 errors, which are considered more robust and are the default in lm_robust().
+
+```{r cache = TRUE}
+coeftest(model3, vcovCL(model3, cluster = gerber$hh_id, type = "HC2"))
+```
+
+Without clustering the standard errors, we are assuming that there is no correlation in observations from the same household. That seems very unlikely, given that voting rates are likely similar within households. So it's good that we cluster our robust errors here. That being said, implementing cluster-robust standard errors doesn't really change the significance of our treatment, which makes sense -- given that there are just so many observations, even cutting them max by 3 or so (maybe 3 voters per household, max?), we still will have about 100,000 observations, which is still a very high n and should give us pretty similar levels of error. If we were going from like 1,000 observations to 50, we might lose significance, but here, we're just raising the standard error a bit without actually changing the significance level because our n remains high.
+
+### 3d) Estimate 95\% confidence intervals for the effect of the four treatments, relative to the control condition, based on your results in part c). Describe the substantive and statistical significance of the four treatments. (10 points)
+
+Taking the numbers from above, we can simply get the lower bounds of the effects by taking the Estimate value - 1.96 * the Std. Error value. The upper bound is simply the Estimate value + 1.96 * the Std. Error value. Thus, we end up with:
+
+Hawthorne: c((0.0257363 - 1.96 * 0.0032579), (0.0257363 + 1.96 * 0.0032579)) = **0.019350816, 0.032121784.** Thus, we can say with 95% certainty that the true effect of the Hawthorne treatment on someone voting in the August 2006 midterm elections in Michigan (clustered by household) is between a 1.935% and a 3.212% increase.
+
+Civic Duty: c((0.0178993 - 1.96 * 0.0032367), (0.0178993 + 1.96 * 0.0032367)) = **0.011555368, 0.024243232.** Thus, we can say with 95% certainty that the true effect of the Civic Duty treatment on someone voting in the August 2006 midterm elections in Michigan (clustered by household) is between a 1.156% and a 2.424% increase.
+
+Neighbors: c((0.0813099 - 1.96 * 0.0033696), (0.0813099 + 1.96 * 0.0033696)) = **0.074705484, 0.087914316.** Thus, we can say with 95% certainty that the true effect of the Neighbors treatment on someone voting in the August 2006 midterm elections in Michigan (clustered by household) is between a 7.471% and an 8.791% increase.
+
+Self: c((0.0485132 - 1.96 * 0.0033001), (0.0485132 + 1.96 * 0.0033001)) = **0.042045004, 0.054981396.** Thus, we can say with 95% certainty that the true effect of the Self treatment on someone voting in the August 2006 midterm elections in Michigan (clustered by household) is between a 4.205% and an 5.498% increase.
+
+### 3e) Estimate whether the effects of the Hawthorne and Neighbors treatments are significantly different from one another (NOTE the leading space in the treatment variable levels). Explain the substantive and statistical significance of these findings. (8 points)
+
+I think that I can just do this in sort of a creative way. I just take out the treatments that I don't want and compare them to one another. 
+
+```{r}
+edata <- gerber %>%
+  filter(treatment != " Control") %>%
+  filter(treatment != " Self") %>%
+  filter(treatment != " Civic Duty")
+
+model4 <- lm(voted ~ treatment, data = edata)
+summary(model4)
+```
+
+Yes, they are significantly different from one another. Essentially, substantively, this means that those households affected by the full-on onslaught of the "Neighbors" treatment have about a 5.55% higher chance of voting in the 2006 midterms than those who were only exposed to the softer "Hawthorne" treatment. The effect is significant at the 0.001 level, so it really does seem to be different. 
+
+### 3f) Using your model from part c), control for g2002. Report what has changed by controlling for previous voting behaviors. Did you find meaningful changes? Why or why not? (5 points)
+
+```{r}
+gerber$g2002 <- recode(gerber$g2002, no = 0, yes = 1)
+```
+
+```{r cache = TRUE}
+model4 <- lm(voted ~ treatment + g2002, data = gerber)
+coeftest(model4, vcovCL(model4, cluster = gerber$hh_id, type = "HC2"))
+```
+
+There are meaningful changes in some areas, but not in others. Overall, the coefficients for the four treatments do not change significantly, but the control group does. I believe that this is because the intercept (the control) now represents those that weren't treated **and** did not vote in 2002, whereas the treatment effects stay unaffected. It looks like those in the "Control" group who did vote in 2002 were almost twice as likely to vote in 2006 as those who did not.
+
+### Question 4 Background:
+
+*We will continue to work with the Gerber et al data. This time, drop all observations except those in the Control group and Neighbors treatment.*
+
+```{r}
+q4data <- gerber %>%
+  filter(treatment != " Self") %>%
+  filter(treatment != " Civic Duty") %>%
+  filter(treatment != " Hawthorne")
+```
+
+### 4a) Use a student's t-test to compare the difference in turnout between the Control and Neighbors conditions. Interpret your results. How do they compare to your regression results from Problem 3? (7 points)
+
+```{r}
+ttestprep1 <- q4data %>%
+  filter(treatment == " Control") %>%
+  select(voted)
+
+ttestprep2 <- q4data %>%
+  filter(treatment == " Neighbors") %>%
+  select(voted)
+
+t.test(x = ttestprep1, y = ttestprep2)
+```
+Our data from this t test match the data from Problem 3. We see that turnout for the control population was around 29.66%, whereas the turnout for the "Neighbors" treated population was around 37.79%. This is what we see in Problem 3 as well. 
+
+Interpreting our results further, we can see with 95% certainty that the true difference in means lies between 0.0866 and 0.0760, or an 8.66% and a 7.60% difference. "t" stands for the t test statistic, df for degrees of freedom, and p-value is, well, the p-value.
+
+### 4b) Run a regression of voting on age, without accounting for treatment status (you will have to create your own age variable). Interpret the substantive significance of the coefficient on age. (5 points)
+
+```{r cache = TRUE}
+q4bdata <- q4data %>%
+  mutate(age = 0)
+
+for(i in 1:nrow(q4bdata)){
+  q4bdata$age[i] <- 2006 - q4bdata$yob[i]
+}
+```
+
+```{r}
+model5 <- lm(voted ~ age, data = q4bdata)
+summary(model5)
+```
+
+The age coefficient is very small and positive, meaning that for each additional year of age, turnout goes up about 0.4%. This really only starts to matter after a certain period of time; the Estimate value for (Intercept) presumably is for when age hypothetically is equal to 0. Since people can only start voting at 18, the intercept doesn't mean all that much substantively.
+
+### 4c) Run a regression of voting on $treatment$, $sex$, and an interaction between $treatment$ and $sex$. What is the average effect of treatment for men? What is the average treatment effect for women? (Just point estimates, no standard errors necessary) (8 points)
+
+```{r}
+model6 <- lm(voted ~ treatment + sex + treatment*sex, data = q4data)
+summary(model6)
+```
+
+This is really interesting data. Here we have figures for the Intercept (Control, Male), "treatment Neighbors" (Treatment, Male), "sexfemale" (Control, Female), and "treatment Neighbors:sexfemale" (Treatment, Female). The average treatment effect on men is about +8.17% -- the first coefficient. The average treatment effect for women is a bit different -- it's the difference between the last two coefficients, which is about +1.15%. So it seems at least superficially that the treatment has a greater effect on men than on women, at least according to this regression.
+
+### 4d) A friend who hasn't taken PS6800 tells you that Gerber, Green, and Larimer should have controlled for household fixed effects. Is this a good idea? Why or why not? (5 points)
+
+We learned in lecture that whether or not we use fixed effects is in part a question of the type of variation we want to explain. Here, using household fixed effects, we could be controlling for all of the characteristics common to each household. So this would account for all of the variables at the household level that could affect individuals' voting habits. For a lot of the households, there are multiple observations (just looking at the hh_id column in the dataset), so it is possible to use fixed effects here.
+
+I would say that it wouldn't be a bad idea to try it; we may be able to address some of the omitted variable bias within the regression. That being said, I don't feel like I know enough about the results to say whether or not it is a good idea. Is there really such wide variation between households that it is useful to use fixed effects? Do we really care about within-household variation? I think that these are questions that the authors would have likely thought of themselves, so I'm skeptical to say that they should automatically include it just because they can. But I do think that it doesn't hurt to try.
+
+### 4e) In 2023, it comes out that an error in the 2006 voter files meant that anyone born on the 30th of the month (any month) was reported as not having voted, even if they did in fact vote. Should Gerber, Green, and Larimer be concerned about the validity of their results? Why or why not? (5 points)
+
+This omission will statistically affect somewhere around 11/365 (February doesn't have a 30th day) of the data, so about 3% of the data. This doesn't sound like much, but it's actually over 10,000 observations given the size of the dataset, so it definitely could mean something. 
+
+That being said, I would say that they should be only slightly concerned. The thing is, taking out 11 random days in the year is, well, random, so presumably the trends wouldn't change all that much. Unless we find some data that tells us that people born on the 30th are somehow way more or less likely to be receptive to a certain type of treatment, I would think that the omission would end up getting spread out relatively evenly, instead of affecting one area or another way stronger than another. So I would say that perhaps the numbers are a bit higher (30% instead of 29% for control, 33% instead of 32% for Hawthorne, etc.), the trends themselves should stay the same. 
